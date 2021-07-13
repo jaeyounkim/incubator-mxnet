@@ -415,15 +415,16 @@ def use_np_array(func):
     .. code-block:: python
 
         import mxnet as mx
-        from mxnet import gluon, np
+        from mxnet import gluon, nd, np
+        from mxnet.gluon import Parameter
 
         class TestHybridBlock1(gluon.HybridBlock):
             def __init__(self):
                 super(TestHybridBlock1, self).__init__()
-                self.w = self.params.get('w', shape=(2, 2))
+                self.w = Parameter('w', shape=(2, 2))
 
-            def hybrid_forward(self, F, x, w):
-                return F.dot(x, w)
+            def forward(self, x):
+                return nd.dot(x, self.w.data())
 
         x = mx.nd.ones((2, 2))
         net1 = TestHybridBlock1()
@@ -433,14 +434,14 @@ def use_np_array(func):
             assert type(v.data()) is mx.nd.NDArray
         assert type(out) is mx.nd.NDArray
 
-        @np.use_np_array
+        @mx.util.use_np_array
         class TestHybridBlock2(gluon.HybridBlock):
             def __init__(self):
                 super(TestHybridBlock2, self).__init__()
-                self.w = self.params.get('w', shape=(2, 2))
+                self.w = Parameter('w', shape=(2, 2))
 
-            def hybrid_forward(self, F, x, w):
-                return F.np.dot(x, w)
+            def forward(self, x):
+                return np.dot(x, self.w.data())
 
         x = np.ones((2, 2))
         net2 = TestHybridBlock2()
@@ -495,15 +496,16 @@ def use_np(func):
     .. code-block:: python
 
         import mxnet as mx
-        from mxnet import gluon, np
+        from mxnet import gluon, nd, np
+        from mxnet.gluon import Parameter
 
         class TestHybridBlock1(gluon.HybridBlock):
             def __init__(self):
                 super(TestHybridBlock1, self).__init__()
-                self.w = self.params.get('w', shape=(2, 2))
+                self.w = Parameter('w', shape=(2, 2))
 
-            def hybrid_forward(self, F, x, w):
-                return F.dot(x, w) + F.ones((1,))
+            def forward(self, x):
+                return nd.dot(x, self.w.data()) + nd.ones((1,))
 
         x = mx.nd.ones((2, 2))
         net1 = TestHybridBlock1()
@@ -513,14 +515,14 @@ def use_np(func):
             assert type(v.data()) is mx.nd.NDArray
         assert type(out) is mx.nd.NDArray
 
-        @np.use_np
+        @mx.util.use_np
         class TestHybridBlock2(gluon.HybridBlock):
             def __init__(self):
                 super(TestHybridBlock2, self).__init__()
-                self.w = self.params.get('w', shape=(2, 2))
+                self.w = Parameter('w', shape=(2, 2))
 
-            def hybrid_forward(self, F, x, w):
-                return F.np.dot(x, w) + F.np.ones(())
+            def forward(self, x):
+                return np.dot(x, self.w.data()) + np.ones(())
 
         x = np.ones((2, 2))
         net2 = TestHybridBlock2()
@@ -873,7 +875,7 @@ def get_cuda_compute_capability(ctx):
         raise ValueError('Expecting a gpu context to get cuda compute capability, '
                          'while received ctx {}'.format(str(ctx)))
 
-    libnames = ('libcuda.so', 'libcuda.dylib', 'cuda.dll')
+    libnames = ('libcuda.so', 'libcuda.dylib', 'nvcuda.dll', 'cuda.dll')
     for libname in libnames:
         try:
             cuda = ctypes.CDLL(libname)
@@ -1174,3 +1176,27 @@ def setenv(name, value):
     """
     passed_value = None if value is None else c_str(value)
     check_call(_LIB.MXSetEnv(c_str(name), passed_value))
+
+
+def get_max_supported_compute_capability():
+    """Get the maximum compute capability (SM arch) supported by the nvrtc compiler
+    """
+    max_supported_cc = ctypes.c_int()
+    check_call(_LIB.MXGetMaxSupportedArch(ctypes.byref(max_supported_cc)))
+    return max_supported_cc.value
+
+
+def get_rtc_compile_opts(ctx):
+    """Get the compile ops suitable for the context, given the toolkit/driver config
+    """
+    device_cc = get_cuda_compute_capability(ctx)
+    max_supported_cc = get_max_supported_compute_capability()
+
+    # CUDA toolkits starting with 11.1 (first to support arch 86) can compile directly to SASS
+    can_compile_to_SASS = max_supported_cc >= 86
+    should_compile_to_SASS = can_compile_to_SASS and \
+                             device_cc <= max_supported_cc
+    device_cc_as_used = min(device_cc, max_supported_cc)
+    arch_opt = "--gpu-architecture={}_{}".format("sm" if should_compile_to_SASS else "compute",
+                                                 device_cc_as_used)
+    return [arch_opt]

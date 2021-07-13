@@ -25,12 +25,12 @@ __all__ = ['softmax', 'log_softmax', 'masked_softmax', 'masked_log_softmax',
            'activation', 'batch_norm', 'fully_connected', 'pick', 'convolution',
            'deconvolution', 'pooling', 'dropout', 'one_hot', 'rnn', 'embedding',
            'topk', 'layer_norm', 'leaky_relu', 'batch_dot', 'broadcast_like',
-           'arange_like']
+           'arange_like', 'group_norm']
 
 
 # pylint: disable=too-many-arguments
 @set_module('mxnet.numpy_extension')
-def softmax(data, axis=-1, length=None, temperature=None, use_length=False, dtype=None):
+def softmax(data, length=None, axis=-1, temperature=None, use_length=False, dtype=None):
     r"""Applies the softmax function.
 
     The resulting array contains elements in the range (0,1) and the elements along the given axis sum up to 1.
@@ -202,6 +202,8 @@ def activation(data, act_type='relu', **kwargs):
 
     The following activation functions are supported:
 
+    - `log_sigmoid`: :math:`y = log(\frac{1}{1 + exp(-x)})`
+    - `mish`: :math:`y = x * tanh(log(1 + exp(x)))`
     - `relu`: Rectified Linear Unit, :math:`y = max(x, 0)`
     - `sigmoid`: :math:`y = \frac{1}{1 + exp(-x)}`
     - `tanh`: Hyperbolic tangent, :math:`y = \frac{exp(x) - exp(-x)}{exp(x) + exp(-x)}`
@@ -212,7 +214,7 @@ def activation(data, act_type='relu', **kwargs):
     ----------
     data : NDArray
         The input array.
-    act_type : {'relu', 'sigmoid', 'softrelu', 'softsign', 'tanh'}, required
+    act_type : {'log_sigmoid', 'mish', 'relu', 'sigmoid', 'softrelu', 'softsign', 'tanh'}, required
         Activation function to be applied.
 
     Returns
@@ -1360,3 +1362,47 @@ def arange_like(data, start=0.0, step=1.0, repeat=1, ctx=None, axis=None):
     """
     return _mx_nd_npx.arange_like(data=data, start=start, step=step, repeat=repeat,
                                   ctx=ctx, axis=axis)
+
+
+# pylint: disable=too-many-arguments
+@set_module('mxnet.numpy_extension')
+def group_norm(data, gamma, beta, num_groups=1, eps=1e-3, output_mean_var=False):
+    r"""Group normalization.
+
+    The input channels are separated into ``num_groups`` groups,
+    each containing ``num_channels / num_groups`` channels.
+    The mean and standard-deviation are calculated separately over the each group.
+
+    .. math::
+
+      data = data.reshape((N, num_groups, C // num_groups, ...))
+      out = \frac{data - mean(data, axis)}{\sqrt{var(data, axis) + \epsilon}} * gamma + beta
+
+    Both ``gamma`` and ``beta`` are learnable parameters.
+
+
+
+    Defined in ../src/operator/nn/group_norm.cc:L78
+
+    Parameters
+    ----------
+    data : NDArray
+        Input data
+    gamma : NDArray
+        gamma array
+    beta : NDArray
+        beta array
+    num_groups : int, optional, default='1'
+        Total number of groups.
+    eps : float, optional, default=9.99999975e-06
+        An `epsilon` parameter to prevent division by 0.
+    output_mean_var : boolean, optional, default=0
+        Output the mean and std calculated along the given axis.
+
+    Returns
+    -------
+    out : NDArray or list of NDArrays
+        The output of this function.
+    """
+    return _mx_nd_npx.group_norm(data=data, gamma=gamma, beta=beta, num_groups=num_groups,
+                                 eps=eps, output_mean_var=output_mean_var)
